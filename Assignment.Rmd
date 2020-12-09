@@ -1,0 +1,58 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Jon"
+date: "12/8/2020"
+output: html_document
+---
+## Loading and Processing the Data
+You start the process by loading the necessary packages, downloading the files, and reading them in.
+```{r echo = TRUE}
+suppressMessages(library(dplyr))
+suppressMessages(library(caret))
+suppressMessages(library(gbm))
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testing.csv")
+training = read.csv("training.csv")
+testing = read.csv("testing.csv")
+```
+
+Once the data is loaded in the next step is to clean it. There are a few rows that seem out of place. Where new_window == "yes" there are additional variables that the other rows don't have, and because there are so few of them it's probably best to remove them. Since the other variables are no longer used it's also advised to remove them from the model. A few other variables are also removed because they are either the row names as another variable or they have some direct ties to the grouping of the classe variable.
+```{r echo = TRUE}
+training <- training %>% filter(new_window == "no")
+emptycols <- colSums(is.na(training)) == nrow(training)
+training <- training[,!emptycols]
+training <- training[,colSums(training!="")!=0]
+training <- training %>% select(-c(new_window, X, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, num_window))
+training$classe <- as.factor(training$classe)
+
+emptycols <- colSums(is.na(testing)) == nrow(testing)
+testing <- testing[,!emptycols]
+testing <- testing[,colSums(training!="")!=0]
+testing <- testing %>% select(-c(new_window, X, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, num_window))
+```
+
+## Creating the Models
+Now that the data is cleaned we can proceed with some model creation. Start by setting a seed for reproducability and then seperate the training data into a train and validation set. 
+```{r echo = TRUE}
+set.seed(1234)
+inTrain <- createDataPartition(y = training$classe, p = .6, list = FALSE)
+training <- training[inTrain,]
+validate <- training[-inTrain,]
+```
+
+Next you'll want to start creating your models. Here we'll use a random forest and a gradient boosted model. A 5-fold cross validation will also be applied to each of the models for factor selection and hyper parameter tuning. 
+```{r echo = TRUE, results = "hide"}
+mod_rf <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", number = 5))
+mod_gbm <- train(classe ~., data = training, method = "gbm", verbose = FALSE, trControl = trainControl(method = "cv", number = 5))
+```
+
+## Model Selection
+With the models created you can use them to predict on the validate set and compare the results. I'll be using the accuracy metric from the output of the confusionMatrix().
+```{r echo = TRUE}
+pred_rf <- predict(mod_rf, validate)
+pred_gbm <- predict(mod_gbm, validate)
+confusionMatrix(pred_rf, validate$classe)
+confusionMatrix(pred_gbm, validate$classe)
+```
+
+From the results you can see that the RF model not only outperforms the GBM model, but it predicts with 100% accuracy. It correctly placed every observation, giving us an error of 0. If neither of these models performed well a stacked model would be advisable, but since the RF model had no errors that will be the model we use to predict on the test set.
